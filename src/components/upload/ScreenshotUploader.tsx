@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react';
-import { parseScreenTimeImage, type ParsedScreenTimeData } from '../../utils/analyzeScreenshot';
+import {
+  parseScreenTimeImage,
+  getStoredApiKey,
+  setStoredApiKey,
+  type ParsedScreenTimeData,
+} from '../../utils/analyzeScreenshot';
 
 interface Props {
   onParsed: (data: ParsedScreenTimeData) => void;
@@ -10,17 +15,27 @@ export function ScreenshotUploader({ onParsed }: Props) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [currentKey, setCurrentKey] = useState('');
+  const [scanStatus, setScanStatus] = useState<{ message: string; isRealAI: boolean } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadingMessages = [
-    'Scanning Screen Time Screenshot...',
-    'Calculating Dopamine & Attention Fines...',
-    'Printing Citation...',
+    'Analyzing pixels & screen time layout...',
+    'Extracting app hours & dopamine usage...',
+    'Calculating citation fine & verdict...',
   ];
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    const k = getStoredApiKey();
+    setCurrentKey(k);
+    setApiKeyInput(k);
+  }, []);
 
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
     if (isAnalyzing) {
       setLoadingStep(0);
       interval = setInterval(() => {
@@ -30,24 +45,34 @@ export function ScreenshotUploader({ onParsed }: Props) {
     return () => clearInterval(interval);
   }, [isAnalyzing]);
 
-  const processFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+  const processFile = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith('image/')) return;
 
-    const previewUrl = URL.createObjectURL(file);
-    setImagePreview(previewUrl);
-    setIsAnalyzing(true);
+      const previewUrl = URL.createObjectURL(file);
+      setImagePreview(previewUrl);
+      setIsAnalyzing(true);
+      setScanStatus(null);
 
-    try {
-      const parsedData = await parseScreenTimeImage(file);
-      onParsed(parsedData);
-    } catch (err) {
-      console.error('Scan failed:', err);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, [onParsed]);
+      try {
+        const parsedData = await parseScreenTimeImage(file, currentKey);
+        onParsed(parsedData);
+        setScanStatus({
+          message: parsedData.isRealAI
+            ? `Extracted ${parsedData.totalScreenTime} via Vision AI`
+            : `Parsed ${parsedData.totalScreenTime} screen time`,
+          isRealAI: !!parsedData.isRealAI,
+        });
+      } catch (err) {
+        console.error('Scan failed:', err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    },
+    [currentKey, onParsed]
+  );
 
-  // Window paste support (Cmd+V / Ctrl+V)
+  // Paste support (Cmd+V / Ctrl+V)
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -91,7 +116,14 @@ export function ScreenshotUploader({ onParsed }: Props) {
 
   const handleRemove = () => {
     setImagePreview(null);
+    setScanStatus(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const saveApiKey = () => {
+    setStoredApiKey(apiKeyInput);
+    setCurrentKey(apiKeyInput.trim());
+    setShowKeyModal(false);
   };
 
   return (
@@ -100,8 +132,40 @@ export function ScreenshotUploader({ onParsed }: Props) {
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
           ⚡ Auto-Scan Screenshot (iOS / Android)
         </span>
-        <span className="text-[10px] text-zinc-400 font-medium">Drop or Press Ctrl+V</span>
+        <button
+          onClick={() => setShowKeyModal(!showKeyModal)}
+          className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
+          title="Optional Gemini Vision API Key for 100% exact OCR"
+        >
+          {currentKey ? '✨ AI Active' : '🔑 API Key'}
+        </button>
       </div>
+
+      {showKeyModal && (
+        <div className="mb-3 p-3 bg-zinc-100 rounded-xl border border-zinc-200 text-xs">
+          <label className="block font-bold text-zinc-700 mb-1">
+            Optional Gemini Vision API Key
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              placeholder="Paste Gemini API Key (AIza...)"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 rounded-lg text-xs bg-white text-zinc-900"
+            />
+            <button
+              onClick={saveApiKey}
+              className="px-3 py-1.5 bg-zinc-900 text-white font-semibold rounded-lg hover:bg-zinc-800 cursor-pointer"
+            >
+              Save
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-400 mt-1">
+            Leave blank to use the built-in smart canvas parser automatically.
+          </p>
+        </div>
+      )}
 
       <input
         ref={fileInputRef}
@@ -128,7 +192,9 @@ export function ScreenshotUploader({ onParsed }: Props) {
             ) : (
               <div>
                 <p className="text-xs font-bold text-emerald-700">✓ Screenshot Analyzed</p>
-                <p className="text-[11px] text-zinc-500">Citation details populated below</p>
+                <p className="text-[11px] text-zinc-600 font-medium">
+                  {scanStatus?.message || 'Citation inputs populated!'}
+                </p>
               </div>
             )}
           </div>
