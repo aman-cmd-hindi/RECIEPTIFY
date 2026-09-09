@@ -38,7 +38,7 @@ export default function App() {
           ref={cardRef}
           className="w-full max-w-[360px] aspect-[9/16] bg-zinc-300 shadow-2xl flex items-center justify-center overflow-hidden rounded-xl print:shadow-none print:bg-white print:rounded-none"
         >
-          <ReceiptCard data={receiptState.data} />
+          <ReceiptCard data={receiptState.data} isPulseAnimating={receiptState.isPulseAnimating} />
         </div>
 
         <ActionToolbar

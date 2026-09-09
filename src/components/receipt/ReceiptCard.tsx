@@ -3,9 +3,10 @@ import type { ReceiptData } from '../../types/receipt';
 
 interface Props {
   data: ReceiptData;
+  isPulseAnimating?: boolean;
 }
 
-export function ReceiptCard({ data }: Props) {
+export function ReceiptCard({ data, isPulseAnimating }: Props) {
   const clipPathStyle = useMemo(() => {
     const points: string[] = [];
     const count = 30;
@@ -41,7 +42,9 @@ export function ReceiptCard({ data }: Props) {
   return (
     <div className="w-full h-full flex items-center justify-center p-4">
       <div
-        className="w-full max-w-[310px] bg-[#fbfbf9] text-[#262626] font-receipt shadow-xl flex flex-col pt-7 pb-9 px-6 relative"
+        className={`w-full max-w-[310px] bg-[#fbfbf9] text-[#262626] font-receipt shadow-xl flex flex-col pt-7 pb-9 px-6 relative transition-all duration-500 ${
+          isPulseAnimating ? 'scale-105 ring-4 ring-amber-400/80 shadow-2xl' : ''
+        }`}
         style={clipPathStyle}
       >
         <div className="text-center mb-3">

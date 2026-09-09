@@ -1,12 +1,13 @@
 import type { TemplateType } from '../../types/receipt';
 import type { useReceiptState } from '../../hooks/useReceiptState';
+import { ScreenshotUploader } from '../upload/ScreenshotUploader';
 
 interface Props {
   receipt: ReturnType<typeof useReceiptState>;
 }
 
 export function ControlPanel({ receipt }: Props) {
-  const { data, changeTemplate, resetToDefault, updateMetadata, updateLineItem, addLineItem, removeLineItem, updateSummary, updateGeneral } = receipt;
+  const { data, changeTemplate, resetToDefault, updateMetadata, updateLineItem, addLineItem, removeLineItem, updateSummary, updateGeneral, applyParsedScreenTime } = receipt;
 
   const templates: TemplateType[] = ['gym', 'screentime', 'study'];
   const inputClass = "w-full px-3 py-1.5 border border-zinc-200 rounded-lg text-sm bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-800 transition-all";
@@ -14,6 +15,9 @@ export function ControlPanel({ receipt }: Props) {
 
   return (
     <div className="flex flex-col h-full max-h-[75vh] overflow-y-auto pr-2 custom-scrollbar space-y-6">
+      {/* Auto-Scan Screenshot Uploader */}
+      <ScreenshotUploader onParsed={applyParsedScreenTime} />
+
       <div className="flex gap-2 bg-zinc-100 p-1 rounded-xl">
         {templates.map((t) => (
           <button

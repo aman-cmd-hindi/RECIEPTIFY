@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ReceiptData, TemplateType, LineItem } from '../types/receipt';
+import type { ParsedScreenTimeData } from '../utils/analyzeScreenshot';
 
 const uid = () => Math.random().toString(36).substring(2, 9);
 
@@ -90,6 +91,8 @@ export function useReceiptState() {
     }
   });
 
+  const [isPulseAnimating, setIsPulseAnimating] = useState(false);
+
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(data));
   }, [data]);
@@ -135,8 +138,46 @@ export function useReceiptState() {
     setData(PRESETS[data.template]);
   }, [data.template]);
 
+  const applyParsedScreenTime = useCallback((parsedData: ParsedScreenTimeData) => {
+    const items: LineItem[] = parsedData.topApps.map((app) => ({
+      id: uid(),
+      name: app.name,
+      quantity: app.time,
+      detail: app.category || 'Doomscroll',
+      cost: app.cost || '-50 IQ',
+    }));
+
+    const nextData: ReceiptData = {
+      template: 'screentime',
+      metadata: {
+        storeName: parsedData.storeName || 'OFFICIAL DOPAMINE CITATION',
+        receiptNumber: `#CIT-${Math.floor(1000 + Math.random() * 9000)}-DOP`,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        cashier: parsedData.cashier || 'DOPAMINE POLICE',
+      },
+      items,
+      summary: {
+        subtotal: `${parsedData.totalScreenTime} WASTED`,
+        taxLabel: 'DOPAMINE FINE',
+        taxValue: parsedData.calculatedFine || '$67.50',
+        totalHeadline: 'VERDICT',
+        totalValue: parsedData.citationVerdict || 'CHRONICALLY ONLINE',
+      },
+      footerMessage: parsedData.footerMessage || 'CITABLE OFFENSE. PLEASE TOUCH GRASS.',
+      barcodeText: parsedData.worstOffender
+        ? `CIT-${parsedData.worstOffender.toUpperCase().replace(/\s+/g, '-')}-FINED`
+        : 'DELETE-THE-APPS',
+    };
+
+    setData(nextData);
+    setIsPulseAnimating(true);
+    setTimeout(() => setIsPulseAnimating(false), 1000);
+  }, []);
+
   return {
     data,
+    isPulseAnimating,
     updateMetadata,
     updateSummary,
     updateGeneral,
@@ -145,5 +186,6 @@ export function useReceiptState() {
     updateLineItem,
     changeTemplate,
     resetToDefault,
+    applyParsedScreenTime,
   };
 }
