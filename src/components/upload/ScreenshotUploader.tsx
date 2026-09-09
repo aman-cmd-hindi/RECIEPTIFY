@@ -11,12 +11,13 @@ export function ScreenshotUploader({ onParsed }: Props) {
   const [loadingStep, setLoadingStep] = useState(0);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadingMessages = [
     'Scanning screenshot text with OCR...',
-    'Extracting apps & screen time hours...',
+    'Verifying Screen Time layout...',
     'Calculating dopamine fine & citation...',
   ];
 
@@ -26,7 +27,7 @@ export function ScreenshotUploader({ onParsed }: Props) {
       setLoadingStep(0);
       interval = setInterval(() => {
         setLoadingStep((prev) => (prev + 1) % loadingMessages.length);
-      }, 700);
+      }, 600);
     }
     return () => clearInterval(interval);
   }, [isAnalyzing]);
@@ -39,13 +40,21 @@ export function ScreenshotUploader({ onParsed }: Props) {
       setImagePreview(previewUrl);
       setIsAnalyzing(true);
       setScanStatus(null);
+      setErrorMessage(null);
 
       try {
         const parsedData = await parseScreenTimeImage(file);
         onParsed(parsedData);
         setScanStatus(`Extracted ${parsedData.totalScreenTime} total screen time`);
-      } catch (err) {
-        console.error('Scan failed:', err);
+      } catch (err: unknown) {
+        console.error('Scan error:', err);
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.includes('INVALID_IMAGE')) {
+          setErrorMessage('⚠️ Invalid Screenshot! Please upload an iOS Screen Time or Android Digital Wellbeing screenshot (not an ID card or document).');
+        } else {
+          setErrorMessage('⚠️ Could not extract screen time from this image. Please try a clearer screenshot.');
+        }
+        setImagePreview(null);
       } finally {
         setIsAnalyzing(false);
       }
@@ -98,6 +107,7 @@ export function ScreenshotUploader({ onParsed }: Props) {
   const handleRemove = () => {
     setImagePreview(null);
     setScanStatus(null);
+    setErrorMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -117,6 +127,15 @@ export function ScreenshotUploader({ onParsed }: Props) {
         onChange={handleFileSelect}
         className="hidden"
       />
+
+      {errorMessage && (
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex justify-between items-center">
+          <span>{errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="text-red-500 hover:text-red-900 ml-2 font-bold cursor-pointer">
+            ✕
+          </button>
+        </div>
+      )}
 
       {imagePreview ? (
         <div className="relative rounded-xl border border-zinc-200 p-3 bg-zinc-50 flex items-center gap-3">

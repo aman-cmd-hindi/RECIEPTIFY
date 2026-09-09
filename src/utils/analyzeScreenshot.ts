@@ -19,6 +19,17 @@ export interface ParsedScreenTimeData {
   footerMessage: string;
 }
 
+const ID_DOCUMENT_KEYWORDS = [
+  'aadhaar', 'aadhar', 'government of india', 'uidai', 'dob:', 'd.o.b', 'male', 'female',
+  'father name', 'identity card', 'pan card', 'passport', 'driving license', 'election commission',
+  'address:', 'enrolment no', 'republic of india'
+];
+
+const SCREENTIME_KEYWORDS = [
+  'screen time', 'digital wellbeing', 'daily average', 'app usage', 'most used',
+  'categories', 'weekly average', 'today', 'limits', 'always allowed', 'device care', 'battery'
+];
+
 const KNOWN_APPS: Record<string, { category: string; cost: string }> = {
   tiktok: { category: 'FYP Doomscroll', cost: '-120 IQ' },
   instagram: { category: 'Reels & Stories', cost: '-45 ENVY' },
@@ -47,14 +58,9 @@ const KNOWN_APPS: Record<string, { category: string; cost: string }> = {
 };
 
 export async function parseScreenTimeImage(file: File): Promise<ParsedScreenTimeData> {
-  try {
-    const ocrText = await extractTextFromImage(file);
-    const parsed = parseOcrText(ocrText, file);
-    return parsed;
-  } catch (err) {
-    console.warn('OCR processing error, using fallback image parser:', err);
-    return fallbackImageParser(file);
-  }
+  const ocrText = await extractTextFromImage(file);
+  const parsed = parseOcrText(ocrText, file);
+  return parsed;
 }
 
 async function extractTextFromImage(file: File): Promise<string> {
@@ -74,6 +80,13 @@ async function extractTextFromImage(file: File): Promise<string> {
 }
 
 function parseOcrText(text: string, file: File): ParsedScreenTimeData {
+  const lowerText = text.toLowerCase();
+
+  // 1. Strict ID document rejection
+  if (ID_DOCUMENT_KEYWORDS.some((kw) => lowerText.includes(kw))) {
+    throw new Error('INVALID_IMAGE: Uploaded image appears to be an ID card or document, not a Screen Time screenshot.');
+  }
+
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
   const foundApps: ParsedApp[] = [];
@@ -83,11 +96,12 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
 
   const timeRegex = /(\d{1,2})\s*h(?:ours?)?(?:\s*(\d{1,2})\s*m(?:in)?)?|(\d{1,2})\s*m(?:in)?/i;
 
+  // Scan lines for Screen time header and known apps
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
 
-    // Check for total screen time header (e.g. "Daily Average 6h 45m" or "Screen Time 5h")
+    // Check for total screen time header
     if (!totalTimeStr && (lowerLine.includes('screen time') || lowerLine.includes('daily average') || lowerLine.includes('total'))) {
       const match = line.match(timeRegex);
       if (match) {
@@ -106,8 +120,9 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
 
         const sameLineMatch = line.match(timeRegex);
         const nextLineMatch = lines[i + 1] ? lines[i + 1].match(timeRegex) : null;
+        const prevLineMatch = i > 0 ? lines[i - 1].match(timeRegex) : null;
 
-        const match = sameLineMatch || nextLineMatch;
+        const match = sameLineMatch || nextLineMatch || prevLineMatch;
         if (match) {
           duration = match[0];
           const h = parseInt(match[1] || '0', 10);
@@ -129,14 +144,22 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
     }
   }
 
-  // Scan lines with time strings if known apps weren't detected
-  if (foundApps.length < 2) {
+  // Check if any screentime keywords exist
+  const hasScreentimeContext = SCREENTIME_KEYWORDS.some((kw) => lowerText.includes(kw));
+
+  // If no known apps and no screentime context found, reject non-screentime images
+  if (foundApps.length === 0 && !hasScreentimeContext) {
+    throw new Error('INVALID_IMAGE: Please upload a valid iOS Screen Time or Android Digital Wellbeing screenshot.');
+  }
+
+  // If screentime context exists but apps weren't in KNOWN_APPS, scan lines for generic app names
+  if (foundApps.length === 0) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const match = line.match(timeRegex);
-      if (match && line.length > 2 && line.length < 30) {
+      if (match && line.length > 2 && line.length < 25) {
         const cleanName = line.replace(timeRegex, '').replace(/[^a-zA-Z0-9\s]/g, '').trim();
-        if (cleanName.length >= 2 && !foundApps.some((a) => a.name.toLowerCase() === cleanName.toLowerCase())) {
+        if (cleanName.length >= 3 && !foundApps.some((a) => a.name.toLowerCase() === cleanName.toLowerCase())) {
           const h = parseInt(match[1] || '0', 10);
           const m = parseInt(match[2] || match[3] || '0', 10);
           const mins = h * 60 + m || 35;
@@ -163,7 +186,6 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
   const totalM = finalTotalMinutes % 60;
   totalTimeStr = totalTimeStr || `${totalH}h ${totalM}m`;
 
-  // Calculate half time (0.5x study time)
   const halfMinutes = Math.floor(finalTotalMinutes * 0.5);
   const halfH = Math.floor(halfMinutes / 60);
   const halfM = halfMinutes % 60;
@@ -173,7 +195,6 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
   const calculatedFine = `$${fineVal}`;
   const worstOffender = foundApps[0]?.name || 'Social Media';
 
-  // Brutal career roast message
   const footerMessage = totalH >= 1
     ? `YOU WASTED ${totalTimeStr}! IF YOU STUDIED EVEN 0.5x OF THIS TIME (${halfTimeStr}), YOU WOULD BE AN ENGINEER OR A DOCTOR BY NOW!`
     : `SCREEN TIME: ${totalTimeStr}. KEEP STUDYING TO BE AN ENGINEER OR DOCTOR!`;
