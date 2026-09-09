@@ -10,12 +10,13 @@ export interface ParsedApp {
 export interface ParsedScreenTimeData {
   storeName: string;
   totalScreenTime: string;
+  halfScreenTime: string;
   topApps: ParsedApp[];
   worstOffender: string;
   calculatedFine: string;
   citationVerdict: string;
   cashier?: string;
-  footerMessage?: string;
+  footerMessage: string;
 }
 
 const KNOWN_APPS: Record<string, { category: string; cost: string }> = {
@@ -51,7 +52,7 @@ export async function parseScreenTimeImage(file: File): Promise<ParsedScreenTime
     const parsed = parseOcrText(ocrText, file);
     return parsed;
   } catch (err) {
-    console.warn('OCR processing error, using image shape parser:', err);
+    console.warn('OCR processing error, using fallback image parser:', err);
     return fallbackImageParser(file);
   }
 }
@@ -77,27 +78,29 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
 
   const foundApps: ParsedApp[] = [];
   let detectedTotalMinutes = 0;
+  let headerTimeMinutes = 0;
   let totalTimeStr = '';
 
-  // Regex patterns for times e.g. "2h 45m", "3h", "45m", "1h 12m"
   const timeRegex = /(\d{1,2})\s*h(?:ours?)?(?:\s*(\d{1,2})\s*m(?:in)?)?|(\d{1,2})\s*m(?:in)?/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
 
-    // Check for total screen time header (e.g., "Daily Average 6h 45m" or "Screen Time 5h")
+    // Check for total screen time header (e.g. "Daily Average 6h 45m" or "Screen Time 5h")
     if (!totalTimeStr && (lowerLine.includes('screen time') || lowerLine.includes('daily average') || lowerLine.includes('total'))) {
       const match = line.match(timeRegex);
       if (match) {
         totalTimeStr = match[0];
+        const h = parseInt(match[1] || '0', 10);
+        const m = parseInt(match[2] || match[3] || '0', 10);
+        headerTimeMinutes = h * 60 + m;
       }
     }
 
     // Match known apps
     for (const [appKey, meta] of Object.entries(KNOWN_APPS)) {
       if (lowerLine.includes(appKey) && !foundApps.some((a) => a.name.toLowerCase() === appKey)) {
-        // Look for time in same line or next line
         let duration = '45m';
         let mins = 45;
 
@@ -113,8 +116,6 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
         }
 
         detectedTotalMinutes += mins;
-
-        // Proper app capitalization
         const appName = appKey.charAt(0).toUpperCase() + appKey.slice(1);
 
         foundApps.push({
@@ -128,14 +129,14 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
     }
   }
 
-  // If OCR couldn't detect known apps, scan lines with time strings for generic app names
-  if (foundApps.length === 0) {
+  // Scan lines with time strings if known apps weren't detected
+  if (foundApps.length < 2) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const match = line.match(timeRegex);
-      if (match && line.length > 3 && line.length < 30) {
+      if (match && line.length > 2 && line.length < 30) {
         const cleanName = line.replace(timeRegex, '').replace(/[^a-zA-Z0-9\s]/g, '').trim();
-        if (cleanName.length >= 3) {
+        if (cleanName.length >= 2 && !foundApps.some((a) => a.name.toLowerCase() === cleanName.toLowerCase())) {
           const h = parseInt(match[1] || '0', 10);
           const m = parseInt(match[2] || match[3] || '0', 10);
           const mins = h * 60 + m || 35;
@@ -149,69 +150,71 @@ function parseOcrText(text: string, file: File): ParsedScreenTimeData {
           });
         }
       }
-      if (foundApps.length >= 4) break;
+      if (foundApps.length >= 8) break;
     }
   }
 
-  // Fallback if OCR text didn't return apps
   if (foundApps.length === 0) {
     return fallbackImageParser(file);
   }
 
-  // Calculate totals
-  if (!totalTimeStr) {
-    const h = Math.floor(detectedTotalMinutes / 60);
-    const m = detectedTotalMinutes % 60;
-    totalTimeStr = `${h}h ${m}m`;
-  }
+  const finalTotalMinutes = headerTimeMinutes > 0 ? headerTimeMinutes : detectedTotalMinutes;
+  const totalH = Math.floor(finalTotalMinutes / 60);
+  const totalM = finalTotalMinutes % 60;
+  totalTimeStr = totalTimeStr || `${totalH}h ${totalM}m`;
 
-  const hoursNum = Math.max(1, Math.round(detectedTotalMinutes / 60));
-  const fineVal = (hoursNum * 10).toFixed(2);
+  // Calculate half time (0.5x study time)
+  const halfMinutes = Math.floor(finalTotalMinutes * 0.5);
+  const halfH = Math.floor(halfMinutes / 60);
+  const halfM = halfMinutes % 60;
+  const halfTimeStr = `${halfH}h ${halfM}m`;
+
+  const fineVal = ((finalTotalMinutes / 60) * 10).toFixed(2);
   const calculatedFine = `$${fineVal}`;
-
   const worstOffender = foundApps[0]?.name || 'Social Media';
 
-  const verdicts = [
-    'CHRONICALLY ONLINE - CITATION ISSUED',
-    'DOPAMINE OVERDOSE VIOLATION - FINED',
-    'ATTENTION DEFICIT CITATION ISSUED',
-    'SCREEN TIME EXCEEDED - PENALTY ENFORCED',
-  ];
-  const citationVerdict = verdicts[detectedTotalMinutes % verdicts.length];
+  // Brutal career roast message
+  const footerMessage = totalH >= 1
+    ? `YOU WASTED ${totalTimeStr}! IF YOU STUDIED EVEN 0.5x OF THIS TIME (${halfTimeStr}), YOU WOULD BE AN ENGINEER OR A DOCTOR BY NOW!`
+    : `SCREEN TIME: ${totalTimeStr}. KEEP STUDYING TO BE AN ENGINEER OR DOCTOR!`;
 
   return {
     storeName: 'OFFICIAL DOPAMINE CITATION',
     totalScreenTime: totalTimeStr,
-    topApps: foundApps.slice(0, 4),
+    halfScreenTime: halfTimeStr,
+    topApps: foundApps.slice(0, 8),
     worstOffender,
     calculatedFine,
-    citationVerdict,
+    citationVerdict: 'CHRONICALLY ONLINE - DOOMSCROLLER',
     cashier: 'DOPAMINE POLICE',
-    footerMessage: 'CITABLE OFFENSE. PLEASE TOUCH GRASS IMMEDIATELY.',
+    footerMessage,
   };
 }
 
 function fallbackImageParser(file: File): ParsedScreenTimeData {
   const hash = Math.abs(file.name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) + file.size);
-  const totalMins = 210 + (hash % 390);
+  const totalMins = 240 + (hash % 360);
   const h = Math.floor(totalMins / 60);
   const m = totalMins % 60;
 
+  const halfMins = Math.floor(totalMins * 0.5);
+  const halfH = Math.floor(halfMins / 60);
+  const halfM = halfMins % 60;
+  const halfTimeStr = `${halfH}h ${halfM}m`;
+  const totalTimeStr = `${h}h ${m}m`;
+
   const appPools = [
     [
-      { name: 'Instagram', time: `${Math.floor(h * 0.45)}h ${m}m`, category: 'Reels & Stories', cost: '-50 ENVY' },
-      { name: 'TikTok', time: `${Math.floor(h * 0.35)}h 10m`, category: 'FYP Doomscroll', cost: '-100 IQ' },
-      { name: 'YouTube', time: `${Math.floor(h * 0.2)}h 05m`, category: 'Auto-Play Binge', cost: '-40 ATTENTION' },
+      { name: 'Instagram', time: `${Math.floor(h * 0.4)}h ${m}m`, category: 'Reels & Stories', cost: '-50 ENVY' },
+      { name: 'TikTok', time: `${Math.floor(h * 0.3)}h 15m`, category: 'FYP Doomscroll', cost: '-100 IQ' },
+      { name: 'YouTube', time: `${Math.floor(h * 0.2)}h 10m`, category: 'Auto-Play Binge', cost: '-40 ATTENTION' },
+      { name: 'Snapchat', time: `${Math.floor(h * 0.1)}h 05m`, category: 'Streaks', cost: '-20 FOCUS' },
     ],
     [
-      { name: 'TikTok', time: `${Math.floor(h * 0.5)}h 20m`, category: 'FYP Doomscroll', cost: '-140 IQ' },
-      { name: 'Snapchat', time: `${Math.floor(h * 0.3)}h 15m`, category: 'Streaks & Lenses', cost: '-30 FOCUS' },
-      { name: 'Twitter / X', time: `${Math.floor(h * 0.2)}h 05m`, category: 'Timeline Debates', cost: '+75 RAGE' },
-    ],
-    [
-      { name: 'YouTube', time: `${Math.floor(h * 0.55)}h 35m`, category: 'Auto-Play Binge', cost: '-90 SLEEP' },
-      { name: 'Reddit', time: `${Math.floor(h * 0.25)}h 15m`, category: 'Rabbit Holes', cost: '-55 SANITY' },
-      { name: 'Roblox', time: `${Math.floor(h * 0.2)}h 10m`, category: 'In-App Purchases', cost: '-$30 WALLET' },
+      { name: 'TikTok', time: `${Math.floor(h * 0.45)}h 20m`, category: 'FYP Doomscroll', cost: '-140 IQ' },
+      { name: 'Instagram', time: `${Math.floor(h * 0.25)}h 15m`, category: 'Explore Feed', cost: '-45 ENVY' },
+      { name: 'Twitter / X', time: `${Math.floor(h * 0.2)}h 10m`, category: 'Timeline Debates', cost: '+75 RAGE' },
+      { name: 'Reddit', time: `${Math.floor(h * 0.1)}h 05m`, category: 'Rabbit Holes', cost: '-30 SANITY' },
     ],
   ];
 
@@ -219,12 +222,13 @@ function fallbackImageParser(file: File): ParsedScreenTimeData {
 
   return {
     storeName: 'OFFICIAL DOPAMINE CITATION',
-    totalScreenTime: `${h}h ${m}m`,
+    totalScreenTime: totalTimeStr,
+    halfScreenTime: halfTimeStr,
     topApps: pool,
     worstOffender: pool[0].name,
-    calculatedFine: `$${(h * 10 + (m / 60) * 10).toFixed(2)}`,
-    citationVerdict: 'CHRONICALLY ONLINE - CITATION ISSUED',
+    calculatedFine: `$${((totalMins / 60) * 10).toFixed(2)}`,
+    citationVerdict: 'CHRONICALLY ONLINE - DOOMSCROLLER',
     cashier: 'DOPAMINE POLICE',
-    footerMessage: 'CITABLE OFFENSE. PLEASE TOUCH GRASS IMMEDIATELY.',
+    footerMessage: `YOU WASTED ${totalTimeStr}! IF YOU STUDIED EVEN 0.5x OF THIS TIME (${halfTimeStr}), YOU WOULD BE AN ENGINEER OR A DOCTOR BY NOW!`,
   };
 }

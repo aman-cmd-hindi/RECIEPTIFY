@@ -158,13 +158,13 @@ export function useReceiptState() {
       },
       items,
       summary: {
-        subtotal: `${parsedData.totalScreenTime} WASTED`,
-        taxLabel: 'DOPAMINE FINE',
-        taxValue: parsedData.calculatedFine || '$67.50',
+        subtotal: `${parsedData.totalScreenTime} WASTED (${parsedData.halfScreenTime} STUDY LOSS)`,
+        taxLabel: 'FUTURE CAREER LOSS',
+        taxValue: '-1 DOCTOR/ENG',
         totalHeadline: 'VERDICT',
         totalValue: parsedData.citationVerdict || 'CHRONICALLY ONLINE',
       },
-      footerMessage: parsedData.footerMessage || 'CITABLE OFFENSE. PLEASE TOUCH GRASS.',
+      footerMessage: parsedData.footerMessage,
       barcodeText: parsedData.worstOffender
         ? `CIT-${parsedData.worstOffender.toUpperCase().replace(/\s+/g, '-')}-FINED`
         : 'DELETE-THE-APPS',
